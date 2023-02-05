@@ -75,5 +75,5 @@ if '__main__' == __name__:
     )
 
     if True == args.update:
-        TA.update_thran_apparatus()
+        TA.check_for_updates()
         exit()

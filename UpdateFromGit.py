@@ -25,20 +25,21 @@ class UpdateFromGit:
             print(f"Invalid target uri for repository: status code {response.status_code} received.")
             return False, {}
 
+        self.updates = {}
+
         for f in json.loads(response.text):
             realpath = os.path.join(self.script_path, f["path"]).replace("/", os.path.sep)
             if "dir" == f["type"]:
-                print(f"make dir: {realpath}")
                 os.makedirs(realpath, exist_ok=True)
-                self.check(f["url"], realpath)
             elif not os.path.exists(realpath):
-                print(f"make file: {realpath}")
-                self.updates[realpath] = f
+                self.save_file(f["download_url"], realpath)
+                self.updates[realpath] = f["download_url"]
             elif f["sha"] != self.gen_hash(realpath):
-                print(f"update file: {realpath}")
-                self.updates[realpath] = f
+                self.save_file(f["download_url"], realpath)
+                self.updates[realpath] = f["download_url"]
             else:
                 print(f"skip {realpath}")
+
         print(json.dumps(self.updates, indent=4))
 
         return True, self.updates

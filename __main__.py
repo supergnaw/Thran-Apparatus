@@ -1,27 +1,20 @@
 # --- CHECK REQUIRED PACKAGES --- #
-import json
-
+import pkg_resources
 required = {
     'opencv-python'
 }
-import pkg_resources
-
-installed = {pkg.key for pkg in pkg_resources.working_set}
-missing = required - installed
-
-if missing:
-    print(f"Missing the following required packages: {missing}")
+if required - {pkg.key for pkg in pkg_resources.working_set}:
+    print(f"Missing the following required packages: {required - {pkg.key for pkg in pkg_resources.working_set}}")
     exit()
 
 # ---- STANDARD IMPORTS ---- #
 import argparse
 import os
-import UpdateFromGit
-import replus
-from typing import AnyStr
+import json
+import typing
 
-# ---- CUSTOM IMPORTS ---- #
-import ThranApparatus
+# ---- CUSTOM CLASS IMPORTS ---- #
+from ThranApparatus import ThranApparatus
 from UpdateFromGit import UpdateFromGit
 
 # ---- SCRIPT ARGUMENTS ---- #
@@ -54,7 +47,7 @@ from UpdateFromGit import UpdateFromGit
 #     return parser
 
 # ---- ARGUMENT PARSER ---- #
-def argument_parser(json_arguments: AnyStr = os.path.join(".", "arguments.json")) -> bool | argparse.ArgumentParser:
+def argument_parser(json_arguments: typing.AnyStr = os.path.join(".", "arguments.json")) -> bool | argparse.ArgumentParser:
     if not os.path.exists(json_arguments):
         print(f"{json_arguments} doesn't exist")
         return False
@@ -87,7 +80,7 @@ if '__main__' == __name__:
         exit()
 
     # Instantiate the thing
-    TA = ThranApparatus.ThranApparatus(
+    TA = ThranApparatus(
         art_directory=args.art_directory,
         force_overwrite=args.force_overwrite,
         input=args.input,

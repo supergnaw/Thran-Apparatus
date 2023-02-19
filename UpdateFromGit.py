@@ -27,6 +27,8 @@ class UpdateFromGit:
 
         self.updates = {}
 
+        print(uri)
+
         for f in json.loads(response.text):
             realpath = os.path.join(self.script_path, f["path"]).replace("/", os.path.sep)
             if "dir" == f["type"]:

@@ -17,26 +17,28 @@ class UpdateFromGit:
         import __main__
         self.script_path = os.path.dirname(os.path.abspath(__main__.__file__))
 
-    def check(self, uri: AnyStr = "") -> tuple[bool, dict[Any, Any]]:
+    def check(self, uri: AnyStr = "", target_path: AnyStr = "") -> tuple[bool, dict[Any, Any]]:
         response = requests.get(uri if 0 < len(uri.strip()) else self.uri)
+        target_path = self.script_path if 0 == len(target_path) else target_path
 
         if 200 != response.status_code:
             print(f"Invalid target uri for repository: status code {response.status_code} received.")
             return False, {}
 
         for f in json.loads(response.text):
-            # file_name, download_url, remote_hash = f["path"], f["download_url"], f["sha"]
-            #
-            # print(f"file_name, download_url, remote_hash:\n{file_name}\n{download_url}\n{remote_hash}")
-            realpath = os.path.join(self.script_path, f["path"])
-            print(realpath)
-            if not os.path.exists(realpath):
-                # self.updates[f["path"]] = f["download_url"]
+            realpath = os.path.join(self.script_path, f["path"]).replace("/", os.path.sep)
+            if "dir" == f["type"]:
+                print(f"make dir: {realpath}")
+                os.makedirs(realpath, exist_ok=True)
+                self.check(f["url"], realpath)
+            elif not os.path.exists(realpath):
+                print(f"make file: {realpath}")
                 self.updates[realpath] = f
-            elif f["sha"] != self.gen_hash(realpath) and f["path"] in self.allowed_updates:
-                # self.updates[f["path"]] = f["download_url"]
+            elif f["sha"] != self.gen_hash(realpath):
+                print(f"update file: {realpath}")
                 self.updates[realpath] = f
-
+            else:
+                print(f"skip {realpath}")
         print(json.dumps(self.updates, indent=4))
 
         return True, self.updates
@@ -49,10 +51,8 @@ class UpdateFromGit:
     def update(self, target_file: AnyStr, raw_link: AnyStr) -> bool:
         if os.path.exists(target_file) and target_file in self.allowed_updates:
             return self.save_file(raw_link, target_file)
-
         if not os.path.exists(target_file):
             return self.save_file(raw_link, target_file)
-
         return False
 
     def save_file(self, url, filepath) -> bool:
@@ -61,15 +61,16 @@ class UpdateFromGit:
         if 200 != response.status_code:
             print(f"Update failed: status code {response.status_code} received.")
             return False
-
         with open(filepath, "wb") as f:
             f.write(response.content)
-
         return os.path.exists(filepath)
 
-    def gen_hash(self, filename: AnyStr) -> str:
+    def gen_hash(self, filename: AnyStr) -> bool | str:
         """"This function returns the SHA-1 hash
         of the file passed into it"""
+
+        if os.path.isdir(filename):
+            return False
         # read only 1024 bytes at a time
         byte_limit = 1024
         ghash = hashlib.sha1()
@@ -78,6 +79,7 @@ class UpdateFromGit:
         ghash.update(f"blob {os.stat(filename).st_size}\0".encode("utf-8"))
 
         # open file for reading in binary mode
+        print(f"gen_hash on {filename}")
         with open(filename, 'rb') as file:
             chunk = 0
             while chunk != b'':

@@ -21,6 +21,11 @@ import cv2  # opencv-python
 import replus as rp
 
 
+DEFAULT_ART_DIRECTORY = f".{os.path.sep}art{os.path.sep}original"
+DEFAULT_OUTPUT_DIRECTORY = f".{os.path.sep}renders"
+DEFAULT_CACHE_DIRECTORY = f".{os.path.sep}_cache"
+DEFAULT_TEMPLATE = "classicRedux"
+
 class ThranApparatus:
     __version__ = "4.1"
     last_update = "2023-01-18"

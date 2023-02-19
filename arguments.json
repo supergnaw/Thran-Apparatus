@@ -1,0 +1,89 @@
+{
+    "description":"A python-based Magic: The Gathering playtest card image generator.",
+    "args":[
+        {
+            "name":"art-directory",
+            "flag":"-a",
+            "kwargs":{
+                "metavar":"string",
+                "help":"Directory containing card art images"
+            }
+        },
+        {
+            "name":"force-overwrite",
+            "flag":"-f",
+            "kwargs":{
+                "default":false,
+                "action":"store_true",
+                "help":"Force image overwriting when generating new card images"
+            }
+        },
+        {
+            "name":"input",
+            "flag":"-i",
+            "kwargs":{
+                "metavar":"string",
+                "default":null,
+                "help":"Input list of card images to render"
+            }
+        },
+        {
+            "name":"reminder",
+            "flag":"-r",
+            "kwargs":{
+                "default":false,
+                "action":"store_true",
+                "help":"Include available reminder text (Default: False)"
+            }
+        },
+        {
+            "name":"template",
+            "flag":"-t",
+            "kwargs":{
+                "metavar":"string",
+                "nargs":1,
+                "help":"Template name"
+            }
+        },
+        {
+            "name":"output",
+            "flag":"-o",
+            "kwargs":{
+                "metavar":"string",
+                "nargs":1,
+                "help":"Write output to directory"
+            }
+        },
+        {
+            "name":"update",
+            "flag":"-u",
+            "kwargs":{
+                "metavar":"string",
+                "default":false,
+                "action":"store_true",
+                "help":"Write output to directory"
+            }
+        },
+        {
+            "name":"verbose",
+            "flag":"-v",
+            "kwargs":{
+                "metavar":"asdfasdf",
+                "default":0,
+                "action":"count",
+                "help":"Show more information during card list processing"
+            }
+        },
+        {
+            "name":"extra-options",
+            "flag":"-x",
+            "kwargs":{
+                "nargs":"+",
+                "default":[
+
+                ],
+                "help":"Extra options for templates with additional positional settings"
+            }
+        }
+    ]
+}

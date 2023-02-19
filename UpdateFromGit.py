@@ -49,15 +49,9 @@ class UpdateFromGit:
             print(f"{key}: {val}")
         return None
 
-    def update(self, target_file: AnyStr, raw_link: AnyStr) -> bool:
-        if os.path.exists(target_file) and target_file in self.allowed_updates:
-            return self.save_file(raw_link, target_file)
-        if not os.path.exists(target_file):
-            return self.save_file(raw_link, target_file)
-        return False
-
     def save_file(self, url, filepath) -> bool:
-        return True
+        # return True
+        print(f"Downloading {filepath} from {url}")
         response = requests.get(url)
         if 200 != response.status_code:
             print(f"Update failed: status code {response.status_code} received.")

@@ -63,7 +63,6 @@ if '__main__' == __name__:
         script_directory = os.path.dirname(os.path.abspath(__file__))
         updater = UpdateFromGit(github_repo_link, script_directory)
         updater.check()
-        updater.show()
         exit()
 
     # Show the script help

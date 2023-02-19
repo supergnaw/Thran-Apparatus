@@ -1,4 +1,5 @@
 # --- CHECK REQUIRED PACKAGES --- #
+import UpdateFromGit
 
 required = {
     'opencv-python'
@@ -16,67 +17,17 @@ if missing:
 import argparse
 import hashlib
 import requests
+import json
 import os
+import re
 from typing import AnyStr
 
 # --- CUSTOM IMPORTS --- #
 import ThranApparatus
+from UpdateFromGit import UpdateFromGit
 
 
 # --- UPDATING FUNCTIONS --- #
-def check_for_updates() -> None:
-    response = requests.get("https://api.github.com/repos/supergnaw/Thran-Apparatus/contents/")
-
-    for f in json.loads(response.text):
-        file_name, download_url, remote_hash = f["path"], f["download_url"], f["sha"]
-
-        # It's a new file
-        if not os.path.exists(f["path"]):
-            update_file(f["path"], f["download_url"])
-
-        if f["sha"] != file_git_hash(f["path"]):
-            print(f"File is different ({file_name}) - local: {file_git_hash(file_name)} | remote: {remote_hash}")
-            update_file(file_name, download_url)
-
-
-def update_file(target_file, raw_link) -> bool:
-    allowed_updates = ['replus.py']
-
-    if os.path.exists(target_file) and target_file not in allowed_updates:
-        print(f"File update disallowed: {target_file}")
-        return False
-
-    print(0, f"Updating file: {target_file}")
-
-    response = requests.get(raw_link)
-    if 200 != response.status_code:
-        verbose(0, f"Update failed: status code {response.status_code} received.")
-        return False
-
-    # with open(target_file, "wb") as f:
-    #     f.write(response.content)
-    print(f"Successfully updated {target_file}")
-
-    return True
-
-
-def file_git_hash(filename: AnyStr) -> str:
-    """"This function returns the SHA-1 hash
-    of the file passed into it"""
-    # read only 1024 bytes at a time
-    byte_limit = 1024
-    ghash = hashlib.sha1()
-    ghash.update(f"blob {os.stat(filename).st_size}\0".encode("utf-8"))
-
-    # open file for reading in binary mode
-    with open(filename, 'rb') as file:
-        chunk = 0
-        while chunk != b'':
-            chunk = file.read(byte_limit)
-            ghash.update(chunk)
-
-    # return the hex representation of digest
-    return ghash.hexdigest()
 
 
 # --- SCRIPT ARGUMENTS --- #
@@ -115,9 +66,14 @@ if '__main__' == __name__:
     parser = argument_parser()
     args = parser.parse_args()
 
-    # Update the everything
+    # Update all the things
     if args.update:
-        check_for_updates()
+        github_repo_link = "https://api.github.com/repos/supergnaw/Thran-Apparatus/contents/"
+        script_directory = os.path.dirname(os.path.abspath(__file__))
+        updater = UpdateFromGit(github_repo_link, script_directory)
+        updater.check()
+        updater.show()
+        exit()
 
     # Show the script help
     if args.input is None:

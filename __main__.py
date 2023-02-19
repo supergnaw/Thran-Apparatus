@@ -15,20 +15,11 @@ if missing:
 
 # --- STANDARD IMPORTS --- #
 import argparse
-import hashlib
-import requests
-import json
 import os
-import re
-from typing import AnyStr
 
 # --- CUSTOM IMPORTS --- #
 import ThranApparatus
 from UpdateFromGit import UpdateFromGit
-
-
-# --- UPDATING FUNCTIONS --- #
-
 
 # --- SCRIPT ARGUMENTS --- #
 DEFAULT_ART_DIRECTORY = f'.{os.path.sep}art{os.path.sep}original'

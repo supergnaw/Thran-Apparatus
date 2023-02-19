@@ -8,10 +8,10 @@ import time
 import tomllib
 import zipfile
 import collections
-import hashlib
+import inspect
 
 # TYPING
-from typing import AnyStr
+from typing import AnyStr, Dict, Any
 
 # NON-STANDARD IMPORTS
 # import tqdm # for progress bar
@@ -32,31 +32,41 @@ class ThranApparatus:
     _card_data = []
     _card_image = None
 
+    # Directories
+    _dir_art_cache = f".{os.path.sep}_cache{os.path.sep}render"
+    _dir_art_default = f".{os.path.sep}art{os.path.sep}default"
+    _dir_scryfall_cache = f".{os.path.sep}_cache{os.path.sep}scryfall"
+    _dir_renders = f".{os.path.sep}renders"
+
     # --- Initializations --- #
-    def __init__(self, **kwargs: object) -> object | bool:
-        self._art_directory = kwargs.get("art_directory", os.path.sep.join([".", "art", "default"]))
+    def __init__(self, **kwargs: object) -> None:
+        self._art_directory = kwargs.get("art_directory", self._dir_art_default)
         self._force_overwrite = kwargs.get("force_overwrite", False)
         self._input = kwargs.get("input", None)
         self._reminder = kwargs.get("reminder", False)
         self._template = kwargs.get("template", "classicRedux")
-        self._output = kwargs.get("output", f".{os.path.sep}renders")
+        self._output = kwargs.get("output", self._dir_renders)
         self._verbose = kwargs.get("verbose", 0)
         self._extra_options = kwargs.get("extra_options", [])
 
+        print(self._extra_options)
+
         self.show_logo()
+        self.make_dirs()
 
         if self._input:
+            print(f"\n========== Loading Template ==========")
             self.load_template(self._template)
 
+        print(f"\n========== Parsing Card List ==========")
         if not self.load_card_list(self._input):
-            return None
+            pass
 
+        print(f"\n========== Fetching Card Data ==========")
         if not self.fetch_card_list(self._card_list):
-            return None
+            pass
 
-        print(self._card_data)
-        return None
-
+        print("__init__ len(self._card_data))", len(self._card_data))
 
     def show_logo(self):
         versioning = f"Version: {self.__version__}  Updated: {self.last_update}"
@@ -82,12 +92,16 @@ class ThranApparatus:
         self._last_api_call = time.time()
 
         # URI builder
-        uri = f"https://api.scryfall.com/{endpoint.replace('https://api.scryfall.com/', '')}"
+        try:
+            uri = f"https://api.scryfall.com/{endpoint.replace('https://api.scryfall.com/', '')}"
+            response = requests.get(uri)
+        except Exception as e:
+            self.verbose(0, f"{e.args[0].__dict__.get('reason', None)}: {uri}")
+            return False
 
-        response = requests.get(uri)
         if 200 != response.status_code:
-            print(f"Error ({response.status_code}): {response.text}\nFrom: {uri}")
-            return []
+            self.verbose(0, f"Error ({response.status_code}): {response.text}\nFrom: {uri}")
+            return False
         else:
             response = json.loads(response.text)
 
@@ -109,31 +123,63 @@ class ThranApparatus:
         # Convert non-string input to string
         if not isinstance(input_json, str):
             input_json = json.dumps(input_json)
-        return json.loads(input_json, object_hook=collections.namedtuple('ScryfallDataObject', input_json.keys())(
-            *input_json.values()))
+        return json.loads(input_json,
+                          object_hook=lambda d: collections.namedtuple('ScryfallDataObject', d.keys())(*d.values()))
 
-    def fetch_card(self, name: AnyStr = None, card_id: AnyStr = None, set_id: AnyStr = None,
-                   collector_number: AnyStr = None):
-        if card_id:
-            return self._json_to_object(self._make_rest_call(f"cards/{card_id}"))
-        if set_id and collector_number:
-            return self._json_to_object(self._make_rest_call(f"cards/{set_id}/{collector_number}"))
-        if name:
-            return self._json_to_object(self._make_rest_call(f"cards/named?exact={name.replace(' ', '+')}"))
+    def _check_scryfall_cache(self, pattern):
+        filenames = os.listdir(self._dir_scryfall_cache)
+        for f in filenames:
+            if rp.findall(pattern, f):
+                return f"{self._dir_scryfall_cache}{os.path.sep}{f}"
         return None
+
+    def fetch_card(self, card_name: AnyStr = None, card_id: AnyStr = None, card_set_id: AnyStr = None,
+                   card_collector_number: AnyStr = None):
+        if not self._force_overwrite:
+            detection = [str(card_name), str(card_id),
+                         f"{str(card_set_id)}_{str(card_collector_number)}".replace("None", "").strip("_")]
+            while ("" in detection):
+                detection.remove("")
+            while ("None" in detection):
+                detection.remove("None")
+            card_json = self._check_scryfall_cache(f"/.*({'|'.join(detection)}).*/i")
+            if card_json:
+                self.verbose(0, f"Using cached Scryfall data: {card_json}")
+                return self._json_to_object(self._load_card_json(card_json))
+
+        if card_id:
+            card_json = self._make_rest_call(f"cards/{card_id}")
+        if card_set_id and card_collector_number:
+            card_json = self._make_rest_call(f"cards/{card_set_id}/{card_collector_number}")
+        if card_name:
+            card_json = self._make_rest_call(f"cards/named?exact={card_name.replace(' ', '+')}")
+
+        if card_json:
+            self._save_card_json(card_json)
+            return self._json_to_object(card_json)
 
     def fetch_card_list(self, card_list=None):
         card_list = self._card_list if not card_list else card_list
         card_data = []
 
         for card in card_list:
-            pass
-            c = self.fetch_card(name=card['name'], set_id=card['set'], collector_number=card['num'])
-            print(c)
-            card_data.append(c)
+            c = self.fetch_card(card_name=card['name'], card_set_id=card['set'], card_collector_number=card['num'])
+            if c:
+                card_data.append(c)
 
         self._card_data = card_data
         return card_data
+
+    def _load_card_json(self, filename):
+        with open(filename, "r") as f:
+            content = f.read()
+        return json.loads(content)
+
+    def _save_card_json(self, card_json):
+        content = json.dumps(card_json, indent=4)
+        filename = f"{card_json['name']}_{card_json['set'].lower()}_{card_json['collector_number'].lower()}_{card_json['id']}.json"
+        with open(f"{self._dir_scryfall_cache}{os.path.sep}{filename}", "w") as outfile:
+            outfile.write(content)
 
     # --- Helper Functions --- #
 
@@ -156,7 +202,6 @@ class ThranApparatus:
             print(f"  - {d}")
 
     def load_template(self, template: AnyStr = "classicRedux") -> None:
-        print(f"\n===== Loading Template =====")
         templatePath = os.path.join("templates", f"{template}.zip")
         if not os.path.exists(templatePath):
             self.kill_err(f"\nCould not find template: '{template}'")
@@ -175,15 +220,27 @@ class ThranApparatus:
         print(self._config)
         print("Template configuration loaded!")
 
-    # --- Archive I/O Functions --- #
+    # --- Archive I/O & Directory Functions --- #
     def fetch_file(self):
         pass
 
-    def make_dirs(self):
-        pass
-        self._art_directory = None
-        art_dir = f".{os.path.sep}art{os.path.sep}default"
-        renders_dir = f".{os.path.sep}renders{os.path.sep}_cache"
+    def make_dirs(self) -> None:
+        directories = self.get_class_dirs()
+
+        for n, d in directories.items():
+            if not os.path.exists(d):
+                self.verbose(0, f"Making directory path: {d}")
+                os.makedirs(d, exist_ok=True)
+
+    def get_class_dirs(self) -> dict[str, Any]:
+        inspect.getmembers(self)
+        dirs = {}
+
+        for m in inspect.getmembers(self):
+            if m[0].startswith('_dir'):
+                dirs[m[0]] = m[1]
+
+        return dirs
 
     # --- Input/Output Functions --- #
 
@@ -208,28 +265,29 @@ class ThranApparatus:
         # parse the file
         self.verbose(0, "Parsing list contents for valid cards.")
         cards = []
-        regex = rp.compile('/^(\d+x? )?([^\(]*)(\s\(\w+\))?(\*[^*]*\*)?(\s?\[[^\]]\])?$/i')
-        regex = rp.compile('/^(\d+x?\s*)?([^(]+)(\(([\w]+)(:(\w+))?\))?$/i')
+        regex = rp.compile('/^(\d+x?\s*)?([^(]+)(\(([\w]+)(:(\w+))?)?/i')
         maxNameLen = 0
         maxSetLen = 0
         maxNumLen = 0
 
         for line in lines:
-            line = rp.sub(r'\*.*\*', '', line).strip()
+            print(line)
+            line = rp.sub(r'(\[[^\]]+\]|\*[^\*]+\*)', '', line).strip()
+            print(line)
             matches = rp.findall(regex, line)
             if not matches:
+                self.verbose(0, f"No matches found: {line}")
                 continue
 
             m = matches[0]
             card = {}
             card['name'] = m[1].strip()
             maxNameLen = max(len(card['name']), maxNameLen)
-            card['set'] = m[3].strip()
+            card['set'] = m[3].strip().lower()
             maxSetLen = max(len(card['set']), maxSetLen)
-            card['num'] = m[5].strip()
+            card['num'] = m[5].strip().lower()
             maxNumLen = max(len(card['num']), maxNumLen)
             cards = cards + [card]
-
 
         count = len(cards)
         if 0 >= count:

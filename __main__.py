@@ -4,8 +4,7 @@ required = {
     'opencv-python'
 }
 if required - {pkg.key for pkg in pkg_resources.working_set}:
-    print(f"Missing the following required packages: {required - {pkg.key for pkg in pkg_resources.working_set}}")
-    exit()
+    exit(f"Missing the following required packages: {required - {pkg.key for pkg in pkg_resources.working_set}}")
 
 # ---- STANDARD IMPORTS ---- #
 import argparse
@@ -17,37 +16,8 @@ import typing
 from ThranApparatus import ThranApparatus
 from UpdateFromGit import UpdateFromGit
 
-# ---- SCRIPT ARGUMENTS ---- #
-# DEFAULT_ART_DIRECTORY = f'.{os.path.sep}art{os.path.sep}original'
-# DEFAULT_TEMPLATE = 'classicRedux'
-# DEFAULT_OUTPUT_DIRECTORY = f'.{os.path.sep}renders'
-# exit()
-
-
-# def argument_parser() -> argparse.ArgumentParser:
-#     parser = argparse.ArgumentParser(description='A python-based Magic: The Gathering playtest card image generator.')
-#     parser.add_argument('-a', '--art-directory', metavar='string', default=DEFAULT_ART_DIRECTORY,
-#                         help=f'Directory containing card art images (Default: "{DEFAULT_ART_DIRECTORY}")')
-#     parser.add_argument('-f', '--force-overwrite', action='store_true', default=False,
-#                         help='Force image overwriting when generating new card images (Default: False)')
-#     parser.add_argument('-i', '--input', metavar='string', default=None,
-#                         help='Input list of card images to render')
-#     parser.add_argument('-r', '--reminder', action='store_true', default=False,
-#                         help='Include available reminder text (Default: False)')
-#     parser.add_argument('-t', '--template', nargs=1, metavar='string', default=DEFAULT_TEMPLATE,
-#                         help=f'Template name (Default: "{DEFAULT_TEMPLATE}")')
-#     parser.add_argument('-o', '--output', nargs=1, metavar='string', default=DEFAULT_OUTPUT_DIRECTORY,
-#                         help=f'Write output to directory (Default: "{DEFAULT_OUTPUT_DIRECTORY}")')
-#     parser.add_argument('-u', '--update', action='store_true', default=False,
-#                         help='Update script and local database (Default: False)')
-#     parser.add_argument('-v', '--verbose', action='count', default=0,
-#                         help='Show more information during card list processing')
-#     parser.add_argument('-x', '--extra-options', nargs='+', default=[],
-#                         help="Extra options for templates with additional positional settings")
-#     return parser
-
 # ---- ARGUMENT PARSER ---- #
-def argument_parser(json_arguments: typing.AnyStr = os.path.join(".", "arguments.json")) -> bool | argparse.ArgumentParser:
+def argument_parser(json_arguments: typing.AnyStr = os.path.join(".", "config", "arguments.json")) -> bool | argparse.ArgumentParser:
     if not os.path.exists(json_arguments):
         print(f"{json_arguments} doesn't exist")
         return False
@@ -63,7 +33,19 @@ def argument_parser(json_arguments: typing.AnyStr = os.path.join(".", "arguments
 os.system("cls" if f"{os.name}" == "nt" else "clear")
 
 if '__main__' == __name__:
-    parser = argument_parser()
+    # Parse the arguments
+    json_arguments = os.path.join(".", "config", "arguments.json")
+    if not os.path.exists(json_arguments):
+        exit(f"Configuration file '{json_arguments}' is missing")
+
+    try:
+        with open(json_arguments) as f:
+            arguments = json.loads(f.read())
+    except Exception as e:
+        exit(f"Error reading {json_arguments} file: {e}")
+    parser = argparse.ArgumentParser(description=arguments["description"])
+    for arg in arguments["args"]:
+        parser.add_argument(arg["flag"], f"--{arg['name']}", **arg.get("kwargs", {}))
     args = parser.parse_args()
 
     # Update all the things

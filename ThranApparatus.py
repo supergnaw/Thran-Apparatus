@@ -17,14 +17,15 @@ from typing import AnyStr, Dict, Any
 # import tqdm # for progress bar
 import cv2  # opencv-python
 
+import replus
 # NOTINVENTEDHERESYNDROME
 import replus as rp
-
 
 DEFAULT_ART_DIRECTORY = f".{os.path.sep}art{os.path.sep}original"
 DEFAULT_OUTPUT_DIRECTORY = f".{os.path.sep}renders"
 DEFAULT_CACHE_DIRECTORY = f".{os.path.sep}_cache"
 DEFAULT_TEMPLATE = "classicRedux"
+
 
 class ThranApparatus:
     __version__ = "4.1"
@@ -38,10 +39,13 @@ class ThranApparatus:
     _card_image = None
 
     # Directories
-    _dir_art_cache = f".{os.path.sep}_cache{os.path.sep}render"
-    _dir_art_default = f".{os.path.sep}art{os.path.sep}default"
-    _dir_scryfall_cache = f".{os.path.sep}_cache{os.path.sep}scryfall"
-    _dir_renders = f".{os.path.sep}renders"
+    _dir_art_default = f"./art/default"
+    _dir_scryfall_cache = f"./_cache/scryfall"
+    _dir_renders = f"./renders"
+    _dir_logs = "./logs"
+
+    # Logging
+    _log_file_name = datetime.datetime.now().strftime("%Y-%M-%D_%H%M%S.log")
 
     # --- Initializations --- #
     def __init__(self, **kwargs: object) -> None:
@@ -52,6 +56,8 @@ class ThranApparatus:
         self._template = kwargs.get("template", "classicRedux")
         self._output = kwargs.get("output", self._dir_renders)
         self._verbose = kwargs.get("verbose", 0)
+        print(f"self._verbose ({type(self._verbose)}): {self._verbose}")
+        print(f"kwargs ({type(kwargs)}): {kwargs}")
         self._extra_options = kwargs.get("extra_options", [])
 
         print(self._extra_options)
@@ -92,7 +98,7 @@ class ThranApparatus:
         # Rate limiter -- https://scryfall.com/docs/api
         t_diff = time.time() - self._last_api_call
         if 0.1 > t_diff:
-            self.verbose(0, f"API limit hit ({t_diff}), sleeping for {0.1 - t_diff} seconds")
+            self._verbose_logging(f"API limit hit ({t_diff}), sleeping for {0.1 - t_diff} seconds")
             time.sleep(0.1 - t_diff)
         self._last_api_call = time.time()
 
@@ -101,11 +107,11 @@ class ThranApparatus:
             uri = f"https://api.scryfall.com/{endpoint.replace('https://api.scryfall.com/', '')}"
             response = requests.get(uri)
         except Exception as e:
-            self.verbose(0, f"{e.args[0].__dict__.get('reason', None)}: {uri}")
+            self._verbose_logging(f"{e.args[0].__dict__.get('reason', None)}: {uri}")
             return False
 
         if 200 != response.status_code:
-            self.verbose(0, f"Error ({response.status_code}): {response.text}\nFrom: {uri}")
+            self._verbose_logging(f"Error ({response.status_code}): {response.text}\nFrom: {uri}")
             return False
         else:
             response = json.loads(response.text)
@@ -149,7 +155,7 @@ class ThranApparatus:
                 detection.remove("None")
             card_json = self._check_scryfall_cache(f"/.*({'|'.join(detection)}).*/i")
             if card_json:
-                self.verbose(0, f"Using cached Scryfall data: {card_json}")
+                self._verbose_logging(f"Using cached Scryfall data: {card_json}")
                 return self._json_to_object(self._load_card_json(card_json))
 
         if card_id:
@@ -186,17 +192,32 @@ class ThranApparatus:
         with open(f"{self._dir_scryfall_cache}{os.path.sep}{filename}", "w") as outfile:
             outfile.write(content)
 
-    # --- Helper Functions --- #
+    # --- Informational Functions --- #
 
-    def kill_err(self, err: AnyStr, more: AnyStr = None) -> None:
-        print(err)
-        if None != more:
-            print(more)
-        exit()
+    def kill_err(self, err: str | AnyStr, more: AnyStr = None) -> None:
+        msg: str | AnyStr = f"{err}: {more}" if not None == more else err
+        self._verbose_logging(msg)
+        exit(msg)
 
     def verbose(self, level: int, message: AnyStr) -> None:
         if self._verbose <= level:
             print(message)
+
+    def _verbose_logging(self, msg: str | AnyStr, level: int = 0) -> None:
+        if self._verbose < level:
+            return None
+        log_file = self._fix_dir_sep(f"{self._dir_logs}/{self._log_file_name}")
+        try:
+            print(msg)
+            with open(log_file, "a+") as file_obj:
+                file_obj.write(f"[{self._log_timestamp()}] {msg}")
+        except Exception as e:
+            exit(e)
+        return None
+
+    def _log_timestamp(self) -> str:
+        return datetime.datetime.now().strftime("%Y-%M-%D %H:%M:%S.log")
+
 
     # --- Template Functions --- #
     def show_templates(self) -> None:
@@ -226,29 +247,22 @@ class ThranApparatus:
         print("Template configuration loaded!")
 
     # --- Archive I/O & Directory Functions --- #
-    def fetch_file(self):
-        pass
-
     def make_dirs(self) -> None:
-        directories = self.get_class_dirs()
-
-        for n, d in directories.items():
+        for n, d in self._get_class_dirs().items():
             if not os.path.exists(d):
-                self.verbose(0, f"Making directory path: {d}")
+                self._verbose_logging(f"Making directory path: {d}")
                 os.makedirs(d, exist_ok=True)
 
-    def get_class_dirs(self) -> dict[str, Any]:
-        inspect.getmembers(self)
-        dirs = {}
-
-        for m in inspect.getmembers(self):
-            if m[0].startswith('_dir'):
-                dirs[m[0]] = m[1]
-
+    def _get_class_dirs(self, dirs = {}) -> dict[str, Any]:
+        for member, value in inspect.getmembers(self):
+            if member.startswith('_dir'):
+                dirs[member] = self._fix_dir_sep(value)
         return dirs
 
-    # --- Input/Output Functions --- #
+    def _fix_dir_sep(self, dir_path: str) -> str:
+        return str(os.path.sep).join(rp.split(r"/[\\/]+/", dir_path))
 
+    # --- Input/Output Functions --- #
     def unzip_template(self, template):
         pass
 
@@ -257,7 +271,7 @@ class ThranApparatus:
         if not os.path.exists(file_name):
             self.kill_err(f"Missing card list file: {file_name}")
 
-        self.verbose(0, f"Reading card list file: {file_name}")
+        self._verbose_logging(f"Reading card list file: {file_name}")
         with open(file_name) as f:
             lines = [line for line in f.readlines() if line.strip()]
 
@@ -265,10 +279,10 @@ class ThranApparatus:
         if 0 >= len(lines):
             self.kill_err("No cards found in card list file.")
 
-        self.verbose(0, f"Found {len(lines)} possible cards in card list file.")
+        self._verbose_logging(f"Found {len(lines)} possible cards in card list file.")
 
         # parse the file
-        self.verbose(0, "Parsing list contents for valid cards.")
+        self._verbose_logging("Parsing list contents for valid cards.")
         cards = []
         regex = rp.compile('/^(\d+x?\s*)?([^(]+)(\(([\w]+)(:(\w+))?)?/i')
         maxNameLen = 0
@@ -281,7 +295,7 @@ class ThranApparatus:
             print(line)
             matches = rp.findall(regex, line)
             if not matches:
-                self.verbose(0, f"No matches found: {line}")
+                self._verbose_logging(f"No matches found: {line}")
                 continue
 
             m = matches[0]
@@ -302,9 +316,9 @@ class ThranApparatus:
         dupes = count - len(cards)
         if 0 < dupes:
             ent = 'entry' if 1 == dupes else 'entries'
-            self.verbose(0, f"Removed {dupes} duplicate {ent} from card list.")
+            self._verbose_logging(f"Removed {dupes} duplicate {ent} from card list.")
 
-        self.verbose(0, f"Found {len(cards)} cards in cards list:\n")
+        self._verbose_logging(f"Found {len(cards)} cards in cards list:\n")
 
         print("{name:.^{mnl}}.....{set:.^{msl}}.....{num:.^{mul}}".format(
             name="Card Name", set="Set", num="Col.Num",
@@ -429,7 +443,7 @@ class ThranApparatus:
             if set(combo) == set(colors):
                 return combo
 
-        # No matches!!! What the heck are the se extra colors???
+        # No matches!!! What the heck are these extra colors???
         colors = ",".join(colors)
         self.kill_err(f"! Invalid color combination: {colors}")
 

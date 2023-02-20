@@ -8,7 +8,7 @@ import hashlib
 class UpdateFromGit:
     updates = {}
 
-    def __init__(self, uri: AnyStr, script_path: AnyStr = "") -> object:
+    def __init__(self, uri: AnyStr, script_path: AnyStr = "") -> None:
         self.uri = uri
         self.script_path = script_path if 0 < len(script_path.strip()) else self._resolve_directory()
         self.allowed_updates = ['replus.py']

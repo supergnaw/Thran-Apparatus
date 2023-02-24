@@ -8,6 +8,7 @@ Rhys the Redeemed
 Not A Real Card
 Oona, Queen of the Fae
 Time Vault
+# This shouldn't be a detected line
 1x Progenitus (V11)
 1 Lord Xander, the Collector
 1 Sliver Queen
@@ -17,6 +18,7 @@ Thromok the Insatiable (PCA)
 Gadrak, the Crown-Scourge (M21)
 Dance of the Dead (ICE)
 Amateur Auteur (UST:3c)
+* Not A Real Line *
 1 Nicol Bolas (A25)
 blahb lahbla hb al
 10x Gwendlyn Di Corci (ME3)

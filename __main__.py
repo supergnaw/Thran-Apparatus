@@ -59,6 +59,7 @@ if '__main__' == __name__:
     # Show the script help
     if args.input is None:
         parser.print_help()
+        ThranApparatus.show_templates()
         exit()
 
     # Instantiate the thing

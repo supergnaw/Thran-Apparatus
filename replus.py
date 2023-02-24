@@ -36,37 +36,37 @@ def _parse_flags(flags: str = "", pre_flags: int = re.NOFLAG) -> int:
 
 # UPDATED RE FUNCTIONS USING COMPILED REGEX
 
-def compile(pattern: Pattern[AnyStr], flags: int = re.NOFLAG) -> re.Pattern:
+def compile(pattern: AnyStr | Pattern[AnyStr], flags: int = re.NOFLAG) -> re.Pattern:
     return _parse_regex(pattern, flags)
 
 
-def search(pattern: bytes | Pattern[AnyStr], string: str, flags: int = re.NOFLAG) -> Match[bytes] | None | Match[str]:
+def search(pattern: AnyStr | Pattern[AnyStr], string: str, flags: int = re.NOFLAG) -> Match[bytes] | None | Match[str]:
     return re.search(_parse_regex(pattern, flags), string)
 
 
-def match(pattern: bytes | Pattern[AnyStr], string: str, flags: int = re.NOFLAG) -> Match[bytes] | None | Match[str]:
+def match(pattern: AnyStr | Pattern[AnyStr], string: str, flags: int = re.NOFLAG) -> Match[bytes] | None | Match[str]:
     return re.match(_parse_regex(pattern, flags), string)
 
 
-def fullmatch(pattern: bytes | Pattern[AnyStr], string: str, flags: int = re.NOFLAG) -> Match[bytes] | None | Match[str]:
+def fullmatch(pattern: AnyStr | Pattern[AnyStr], string: str, flags: int = re.NOFLAG) -> Match[bytes] | None | Match[str]:
     return re.fullmatch(_parse_regex(pattern, flags), string)
 
 
-def split(pattern: bytes | Pattern[AnyStr], string: str, maxsplit: int = 0, flags: int = re.NOFLAG) -> list[bytes | Any] | list[str | Any]:
+def split(pattern: AnyStr | Pattern[AnyStr], string: str, maxsplit: int = 0, flags: int = re.NOFLAG) -> list[bytes | Any] | list[str | Any]:
     return re.split(_parse_regex(pattern, flags), string, maxsplit, flags)
 
 
-def findall(pattern: bytes | Pattern[AnyStr], string, flags: int = re.NOFLAG) -> list[Any]:
+def findall(pattern: AnyStr | Pattern[AnyStr], string: object, flags: int = re.NOFLAG) -> list[Any]:
     return re.findall(_parse_regex(pattern, flags), string)
 
 
-def finditer(pattern: bytes | Pattern[AnyStr], string, flags: int = re.NOFLAG) -> Iterator[Match[bytes]] | Iterator[Match[str]]:
+def finditer(pattern: AnyStr | Pattern[AnyStr], string, flags: int = re.NOFLAG) -> Iterator[Match[bytes]] | Iterator[Match[str]]:
     return re.finditer(_parse_regex(pattern, flags), string)
 
 
-def sub(pattern: bytes | Pattern[AnyStr], repl, string, count: int = 0, flags: int = re.NOFLAG) -> bytes | str:
+def sub(pattern: AnyStr | Pattern[AnyStr], repl, string, count: int = 0, flags: int = re.NOFLAG) -> AnyStr:
     return re.sub(_parse_regex(pattern, flags), repl, string, count)
 
 
-def subn(pattern: bytes | Pattern[AnyStr], repl, string, count: int = 0, flags: int = re.NOFLAG) -> tuple[bytes, int] | tuple[str, int]:
+def subn(pattern: AnyStr | Pattern[AnyStr], repl, string, count: int = 0, flags: int = re.NOFLAG) -> tuple[bytes, int] | tuple[str, int]:
     return re.subn(_parse_regex(pattern, flags), repl, string, count)

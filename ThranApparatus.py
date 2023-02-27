@@ -20,98 +20,47 @@ import cv2  # opencv-python
 import replus
 # NOTINVENTEDHERESYNDROME
 import replus as rp
+import MagicTypes
 
 DEFAULT_ART_DIRECTORY = f".{os.path.sep}art{os.path.sep}original"
 
-class TypeSetter(object):
-    def set_types(self, type_list: list):
-        mbrs = inspect.getmembers(self)
-        for t in type_list:
-            if t.lower() in mbrs:
-                if getattr(self, t.lower(), False):
-                    setattr(self, t.lower(), True)
-                else:
-                    setattr(self, t.lower(), False)
+class ScryfallDataObject(object):
+    _mana_cost: MagicTypes = None
+    colors: list = []
+    cmc: float = 0.0
+    colorless: bool = False
+    monocolored: bool = False
+    multicolored: bool = False
+    phyrexian: bool = False
+    hybrid: bool = False
 
-class MagicSuperTypes(TypeSetter):
-    basic = False
-    elite = False
-    host = False
-    legendary = False
-    ongoing = False
-    snow = False
-    world = False
-
-    def __init__(self):
-        pass
-
-class MagicCardTypes(TypeSetter):
-    artifact = False
-    creature = False
-    enchantment = False
-    instant = False
-    land = False
-    planeswalker = False
-    sorcery = False
-    tribal = False
-    dungeon = False
-    plane = False
-    phenomenon = False
-    vanguard = False
-    scheme = False
-    conspiracy = False
-    _count = 0
-
-    def __init__(self):
-        pass
-
-class MagicSubTypes(TypeSetter):
-    def __init__(self):
-        pass
-
-class MagicTypes(object):
-    def __init__(self):
-        self.super = MagicSuperTypes()
-        self.card = MagicCardTypes()
-        self.sub = MagicSubTypes()
-
-        pass
-
-    @property
-    def count(self) -> int:
-        mbrs = inspect.getmembers(self)
-        return len(mbrs)
-        # for mbr in mbrs:
-        #     print(mbr)
-
-    def set_types(self, category: AnyStr):
-        mbrs = inspect.getmembers(getattr(self, category))
-        print(members)
-        type_list = rp.split("/[^\w]+/", type_line.strip())
-        for attr in type_list:
-            if getattr(self, attr, False):
-                setattr(self, True)
-
-class ScryfallDataObject:
-    _mana_cost: str = None
     _type_line: str = None
-    _types = MagicTypes()
-    def __init__(self, **kwargs) -> None:
-        print(kwargs)
-        print("new ScryfallDataObect")
-        if kwargs.get("type_line", False):
-            self.type_line = kwargs["type_line"]
+    supertypes: object = None
+    cardtypes: object = None
+    subtypes: object = None
+
+    # _types = MagicTypes()
+    def __init__(self, json_dict: dict) -> None:
+        for key, value in json_dict.items():
+            setattr(self, key, value)
 
     @property
     def mana_cost(self):
         return self._mana_cost
 
     @mana_cost.setter
-    def mana_cost(self, mana_cost: dict):
+    def mana_cost(self, mana_cost: str):
         self._mana_cost = mana_cost
-        self._mana_cost["hybrid"] = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", self._mana_cost["cost"]) else False
-        self._mana_cost["phyrexian"] = True if rp.search("/[WUBRG2]/P\}/i", self._mana_cost["cost"]) else False
+        self._color_filter()
+        self.hybrid = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", self.mana_cost) else False
+        # self.hybrid = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", self._mana_cost["cost"]) else False
+        self.phyrexian = True if rp.search("/[WUBRG2]/P\}/i", self.mana_cost) else False
+        # self.phyrexian = True if rp.search("/[WUBRG2]/P\}/i", self._mana_cost["cost"]) else False
 
+    def _color_filter(self):
+        colors = list(set(rp.findall("/([WUBRG])/i", self.mana_cost)))
+        colors.sort(key=lambda c: ['W', 'U', 'B', 'R', 'G'].index(c))
+        self.colors = colors
     @property
     def type_line(self):
         return self._type_line
@@ -119,26 +68,10 @@ class ScryfallDataObject:
     @type_line.setter
     def type_line(self, type_line: AnyStr):
         self._type_line = type_line
-        super_card, sub = type_line.split("—")
-        self.types.super.set_types(rp.split("/\s+/", super_card.strip()))
-        self.types.card.set_types(rp.split("/\s+/", super_card.strip()))
-        self.types.sub.set_types(rp.split("/\s+/", sub.strip()))
+        self.supertypes = MagicTypes.SuperTypes(str(type_line))
+        self.cardtypes = MagicTypes.CardTypes(str(type_line))
+        self.subtypes = MagicTypes.SubTypes(str(type_line))
 
-    @property
-    def types(self):
-        return self._types
-
-    def _set_types(self, category: AnyStr, types: AnyStr):
-        type_obj = getattr(self.types, category)
-        for t in rp.split("/[^\w]+/", types):
-            print(t.lower())
-        pass
-
-    def _set_card_types(self, types):
-        pass
-
-    def _set_sub_types(self, types):
-        pass
 
 class ThranApparatus:
     __version__ = "4.2"
@@ -164,7 +97,7 @@ class ThranApparatus:
 
     # ---- Initializations ---- #
     def __init__(self, **kwargs: dict) -> None:
-        self._test()
+        # self._test()
         self._art_directory = kwargs.get("art_directory", self._dir_art_default)
         self._force_overwrite = kwargs.get("force_overwrite", False)
         self._input = kwargs.get("input", None)
@@ -194,10 +127,18 @@ class ThranApparatus:
             self.render_card_list()
 
     def _test(self):
-        type_line: dict = {'type_line': "Legendary Creature — Bird Serpent"}
-        card = ScryfallDataObject(type_line="Legendary Creature — Bird Serpent")
-        print(inspect.getmembers(card))
-        print(json.dumps(card.types, indent=4))
+        sda = ScryfallDataObject()
+        sda.type_line = "Legendary Creature — Bird Serpent"
+        print(sda.supertypes)
+        print(sda.cardtypes)
+        print(sda.subtypes)
+        print(sda.types)
+        sda.mana_cost = "{3}{W/U}{W/U}"
+        print(sda.colorless)
+        print(sda.monocolored)
+        print(sda.multicolored)
+        print(sda.hybrid)
+        print(sda.phyrexian)
         self.kill_err("Testing Complete")
 
     def show_logo(self) -> None:
@@ -236,6 +177,7 @@ class ThranApparatus:
 
         if 200 != response.status_code:
             self._verbose_logging(f"Error from \"{uri}\" ({response.status_code}): {response.text}", 0, 1)
+            self._save_404_json(uri, response.text)
             return False
         else:
             response = json.loads(response.text)
@@ -262,26 +204,37 @@ class ThranApparatus:
                           object_hook=lambda d: collections.namedtuple('ScryfallDataObject', d.keys())(*d.values()))
 
     def _check_scryfall_cache(self, pattern: AnyStr, search_method: str = "findall") -> str | None:
-        cache_dirs = [member for member, member_type in inspect.getmembers(self) if member.startswith("_dir_cache")]
-        for cache_dir in cache_dirs:
+        for cache_dir in [member for member, member_type in inspect.getmembers(self) if member.startswith("_dir_cache")]:
             for f in os.listdir(getattr(self, cache_dir)):
                 if getattr(rp, search_method)(pattern, f):
                     self._verbose_logging(f"Using cached Scryfall data: {f}", 0, 3)
                     return self._fix_dir_sep(f"{getattr(self, cache_dir)}/{f}")
         return None
 
-    def fetch_card(self, card_name: AnyStr | None = None, card_id: AnyStr | None = None, card_set_id: AnyStr | None = None,
-                   card_collector_number: AnyStr | None = None) -> object | None:
-        if not self._force_overwrite:
-            detection = [str(card_name), str(card_id),
-                         f"{str(card_set_id)}_{str(card_collector_number)}".replace("None", "").strip("_")]
-            while ("" in detection):
-                detection.remove("")
-            while ("None" in detection):
-                detection.remove("None")
-            card_json = self._check_scryfall_cache(f"/.*({'|'.join(detection)}).*/i")
-            if card_json:
-                return self._json_to_object(self._load_json(card_json))
+    def _parse_json_detection(self, card_name: str = "", card_id: str = "", card_set_id: str = "", card_collector_number: str = "") -> str:
+        detection = [
+            card_name,
+            card_id,
+            "_".join([
+                card_set_id,
+                card_collector_number
+            ])
+        ]
+        detection = [d for d in detection if 0 < len(str(d).replace("None", "").strip())]
+        return f"/.*({'|'.join(detection)}).*/i"
+
+    def fetch_card(self, card_name: str = "", card_id: str = "", card_set_id: str = "", card_collector_number: str = "") -> object | None:
+        detection = self._parse_json_detection(card_name, card_id, card_set_id, card_collector_number)
+        json_file = self._check_scryfall_cache(detection)
+
+        if self._force_overwrite:
+            if json_file:
+                os.remove(json_file)
+                json_file = None
+
+        if json_file:
+            card_json = self._load_json(json_file)
+            return ScryfallDataObject(card_json)
 
         if card_id:
             card_json = self._make_rest_call(f"cards/{card_id}")
@@ -290,10 +243,14 @@ class ThranApparatus:
         if card_name:
             card_json = self._make_rest_call(f"cards/named?exact={card_name.replace(' ', '+')}")
 
-        if card_json:
-            self._save_card_json(card_json)
-            return self._json_to_object(card_json)
-        return None
+        if not card_json:
+            return None
+
+        self._save_card_json(card_json)
+        return ScryfallDataObject(card_json)
+        # card_obj = self._json_to_object(card_json)
+        # self.kill_err(card_obj.type_line)
+        # card_obj.supertypes = MagicTypes.SuperTypes(card_obj.type_line)
 
     def parse_mana_cost(self, mana_cost: AnyStr) -> object:
         if not self._force_overwrite:
@@ -352,6 +309,15 @@ class ThranApparatus:
         try:
             with open(self._fix_dir_sep(f"{self._dir_cache_mana_cost}/{filename}"), "w") as outfile:
                 outfile.write(json.dumps(mana_cost, indent=4))
+                return True
+        except Exception as e:
+            self.kill_err(e)
+
+    def _save_404_json(self, uri: str, content: dict):
+        filename = "randomhash"
+        try:
+            with open(self._fix_dir_sep(f"{self._dir_cache_404}/{filename}"), "w") as outfile:
+                outfile.write(json.dumps(content, indent=4))
                 return True
         except Exception as e:
             self.kill_err(e)
@@ -959,6 +925,9 @@ class ThranApparatus:
     # ---- Rendering Functions ---- #
     def render_card(self, card: object) -> bool:
         print(inspect.getmembers(card))
+        mana_cost = card.mana_cost
+        card.mana_cost = mana_cost
+        print(card.hybrid)
         self.kill_err("temporary lock")
         render_dir = self._output if self._output else self._dir_renders
         output = self._fix_dir_sep(f"{render_dir}/{card.name}.png")

@@ -1,5 +1,8 @@
 # STANDARD IMPORTS
+import collections
 import datetime
+import hashlib
+import inspect
 import json
 import numpy
 import os
@@ -7,8 +10,6 @@ import requests
 import time
 import tomllib
 import zipfile
-import collections
-import inspect
 
 # TYPING
 from typing import AnyStr, Dict, Any, List
@@ -25,7 +26,7 @@ import MagicTypes
 DEFAULT_ART_DIRECTORY = f".{os.path.sep}art{os.path.sep}original"
 
 class ScryfallDataObject(object):
-    _mana_cost: MagicTypes = None
+    _mana_cost: str = None
     colors: list = []
     cmc: float = 0.0
     colorless: bool = False
@@ -52,15 +53,19 @@ class ScryfallDataObject(object):
     def mana_cost(self, mana_cost: str):
         self._mana_cost = mana_cost
         self._color_filter()
+        self.colorless = True if 0 == len(self.colors) else False
+        self.monocolored = True if 1 == len(self.colors) else False
+        self.multicolored = True if 1 < len(self.colors) else False
         self.hybrid = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", self.mana_cost) else False
-        # self.hybrid = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", self._mana_cost["cost"]) else False
         self.phyrexian = True if rp.search("/[WUBRG2]/P\}/i", self.mana_cost) else False
+        # self.hybrid = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", self._mana_cost["cost"]) else False
         # self.phyrexian = True if rp.search("/[WUBRG2]/P\}/i", self._mana_cost["cost"]) else False
 
     def _color_filter(self):
         colors = list(set(rp.findall("/([WUBRG])/i", self.mana_cost)))
         colors.sort(key=lambda c: ['W', 'U', 'B', 'R', 'G'].index(c))
         self.colors = colors
+
     @property
     def type_line(self):
         return self._type_line
@@ -87,7 +92,7 @@ class ThranApparatus:
     _dir_art_default = f"./art/default"
     _dir_cache_cards = f"./_cache/scryfall/cards"
     _dir_cache_mana_cost = f"./_cache/scryfall/mana_cost"
-    _dir_cache_404 = f"./_cache/scryfall/404"
+    _dir_cache_err = f"./_cache/scryfall/error"
     _dir_renders = f"./renders"
     _dir_logs = "./logs"
     _dir_templates = "./templates"
@@ -98,6 +103,7 @@ class ThranApparatus:
     # ---- Initializations ---- #
     def __init__(self, **kwargs: dict) -> None:
         # self._test()
+        print(json.dumps(kwargs, indent=4))
         self._art_directory = kwargs.get("art_directory", self._dir_art_default)
         self._force_overwrite = kwargs.get("force_overwrite", False)
         self._input = kwargs.get("input", None)
@@ -158,43 +164,50 @@ class ThranApparatus:
 
     # ---- API Facilitation ---- #
     def _make_rest_call(self, endpoint: AnyStr):
-        # Rate limiter -- https://scryfall.com/docs/api
-        t_diff = time.time() - self._last_api_call
-        if 0.1 > t_diff:
-            self._verbose_logging(f"API limit hit ({t_diff}), sleeping for {0.1 - t_diff} seconds", 0, 2)
-            time.sleep(0.1 - t_diff)
-        self._last_api_call = time.time()
+        # Normalize the endpoint URI
+        uri = f"https://api.scryfall.com/{endpoint.replace('https://api.scryfall.com/', '')}"
+        cached_json = self._check_scryfall_cache(hashlib.md5(endpoint.encode('utf-8')).hexdigest())
 
-        # URI builder
-        try:
-            uri = f"https://api.scryfall.com/{endpoint.replace('https://api.scryfall.com/', '')}"
-            response = requests.get(uri)
-        except Exception as e:
-            for member, value in inspect.getmembers(e):
-                print(f"{member:<45} {value}")
-            self._verbose_logging(f"{type(e)} {e.args[0].__dict__.get('reason', None)}: {uri}", 0, 1)
-            return False
-
-        if 200 != response.status_code:
-            self._verbose_logging(f"Error from \"{uri}\" ({response.status_code}): {response.text}", 0, 1)
-            self._save_404_json(uri, response.text)
-            return False
+        if cached_json and not self._force_overwrite:
+            json_data = self._load_json(cached_json)
         else:
-            response = json.loads(response.text)
+            # Rate limiter -- https://scryfall.com/docs/api
+            t_diff = time.time() - self._last_api_call
+            if 0.1 > t_diff:
+                self._verbose_logging(f"API limit hit ({t_diff}), sleeping for {0.1 - t_diff} seconds", 0, 2)
+                time.sleep(0.1 - t_diff)
+            self._last_api_call = time.time()
+
+            # URI builder
+            try:
+                response = requests.get(uri)
+            except Exception as e:
+                for member, value in inspect.getmembers(e):
+                    print(f"{member:<45} {value}")
+                self._verbose_logging(f"{type(e)} {e.args[0].__dict__.get('reason', None)}: {uri}", 0, 1)
+                return False
+
+            if 200 != response.status_code:
+                self._verbose_logging(f"Error from \"{uri}\" ({response.status_code}): {response.text}", 0, 1)
+                if 404 == response.status_code:
+                    self._save_response_json(uri, json.loads(response.text), "error")
+                return False
+            else:
+                json_data = json.loads(response.text)
 
         try:
-            if "list" == response.get("object", False):
-                return_data = response.get("data", [])
-                if response.get("has_more", False) and response.get("next_page", False):
+            if "list" == json_data.get("object", False):
+                return_data = json_data.get("data", [])
+                if json_data.get("has_more", False) and json_data.get("next_page", False):
                     # There's more data, we have to go deeper
-                    return return_data + self._make_rest_call(response["next_page"])
+                    return return_data + self._make_rest_call(json_data["next_page"])[0]
             else:
-                return_data = response
+                return_data = json_data
         except Exception as e:
             print(str(e))
             return False
 
-        return return_data
+        return return_data, uri
 
     def _json_to_object(self, input_json: dict | AnyStr):
         # Convert non-string input to string
@@ -203,67 +216,65 @@ class ThranApparatus:
         return json.loads(input_json,
                           object_hook=lambda d: collections.namedtuple('ScryfallDataObject', d.keys())(*d.values()))
 
-    def _check_scryfall_cache(self, pattern: AnyStr, search_method: str = "findall") -> str | None:
+    def _check_scryfall_cache(self, pattern: AnyStr, search_method: str = "findall") -> str | bool:
         for cache_dir in [member for member, member_type in inspect.getmembers(self) if member.startswith("_dir_cache")]:
+            print(pattern)
+            print(cache_dir)
             for f in os.listdir(getattr(self, cache_dir)):
                 if getattr(rp, search_method)(pattern, f):
                     self._verbose_logging(f"Using cached Scryfall data: {f}", 0, 3)
                     return self._fix_dir_sep(f"{getattr(self, cache_dir)}/{f}")
-        return None
+        return False
 
-    def _parse_json_detection(self, card_name: str = "", card_id: str = "", card_set_id: str = "", card_collector_number: str = "") -> str:
-        detection = [
-            card_name,
-            card_id,
-            "_".join([
-                card_set_id,
-                card_collector_number
-            ])
-        ]
-        detection = [d for d in detection if 0 < len(str(d).replace("None", "").strip())]
-        return f"/.*({'|'.join(detection)}).*/i"
+    def _parse_json_detection(self, card_name: str, card_id: str, card_set_id: str, card_collector_number: str) -> str:
+        card_name = ".*" if not card_name.strip() else card_name
+        card_collector_number = "[^_]+" if not card_id.strip() else card_id
+        card_set_id = "[^_]+" if not card_set_id.strip() else card_set_id
+        card_id = "[a-z\\d\\-]{36}" if not card_collector_number.strip() else card_collector_number
+        return f"/^{card_name}_{card_set_id}_{card_collector_number}_{card_id}\\.json$/i"
 
     def fetch_card(self, card_name: str = "", card_id: str = "", card_set_id: str = "", card_collector_number: str = "") -> object | None:
-        detection = self._parse_json_detection(card_name, card_id, card_set_id, card_collector_number)
-        json_file = self._check_scryfall_cache(detection)
-
-        if self._force_overwrite:
-            if json_file:
-                os.remove(json_file)
-                json_file = None
-
-        if json_file:
-            card_json = self._load_json(json_file)
-            return ScryfallDataObject(card_json)
+        # detection = self._parse_json_detection(card_name, card_id, card_set_id, card_collector_number)
+        # json_file, cache_file = self._check_scryfall_cache(detection)
+        #
+        # if self._force_overwrite:
+        #     if json_file:
+        #         os.remove(json_file)
+        #         json_file = None
+        #
+        # if json_file:
+        #     card_json = self._load_json(json_file)
+        #     return ScryfallDataObject(card_json)
+        card_json = False
 
         if card_id:
-            card_json = self._make_rest_call(f"cards/{card_id}")
+            card_json, uri = self._make_rest_call(f"cards/{card_id}")
         if card_set_id and card_collector_number:
-            card_json = self._make_rest_call(f"cards/{card_set_id}/{card_collector_number}")
+            card_json, uri = self._make_rest_call(f"cards/{card_set_id}/{card_collector_number}")
         if card_name:
-            card_json = self._make_rest_call(f"cards/named?exact={card_name.replace(' ', '+')}")
+            card_json, uri = self._make_rest_call(f"cards/named?exact={card_name.replace(' ', '+')}")
+            if card_set_id:
+                for card in self._make_rest_call(card_json["prints_search_uri"]):
+                    card_json, uri = card if card_set_id == card['set'] else card_json
 
         if not card_json:
             return None
 
-        self._save_card_json(card_json)
+        self._save_response_json(uri, card_json, "card")
         return ScryfallDataObject(card_json)
-        # card_obj = self._json_to_object(card_json)
-        # self.kill_err(card_obj.type_line)
-        # card_obj.supertypes = MagicTypes.SuperTypes(card_obj.type_line)
 
     def parse_mana_cost(self, mana_cost: AnyStr) -> object:
-        if not self._force_overwrite:
-            detection = rp.sub("/[^A-Z0-9\-]+/i", "_", mana_cost.replace("/", "-")).strip("_") + ".json"
-            mana_json = self._check_scryfall_cache(detection, "fullmatch")
-            if mana_json:
-                return self._load_json(mana_json)
+        # if not self._force_overwrite:
+        #     detection = rp.sub("/[^A-Z0-9\-]+/i", "_", mana_cost.replace("/", "-")).strip("_") + ".json"
+        #     mana_json, cache_file = self._check_scryfall_cache(detection, "fullmatch")
+        #     if mana_json:
+        #         return self._load_json(mana_json)
 
-        mana_json = self._make_rest_call(f"https://api.scryfall.com/symbology/parse-mana?cost={mana_cost}")
+        mana_json, uri = self._make_rest_call(f"https://api.scryfall.com/symbology/parse-mana?cost={mana_cost}")
         if mana_json:
-            self._save_mana_json(mana_json)
+            self._save_response_json(uri, mana_json, "mana")
             return mana_json
-        return self._make_rest_call(f"https://api.scryfall.com/symbology/parse-mana?cost={mana_cost}")
+        return None
 
     def _parse_mana_cost_helper(self, mana_properties: dict) -> dict:
         mana_properties["hybrid"] = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", mana_properties["cost"]) else False
@@ -283,6 +294,7 @@ class ThranApparatus:
         card_data = []
 
         for card in card_list:
+            print(card)
             c = self.fetch_card(card_name=card['name'], card_set_id=card['set'], card_collector_number=card['num'])
             if c:
                 card_data.append(c)
@@ -296,6 +308,7 @@ class ThranApparatus:
         return json.loads(content)
 
     def _save_card_json(self, card_json: dict) -> bool:
+        self._verbose_logging(f"Adding new card to cache: {card_json['name']} ({card_json['set'].upper()})")
         filename = f"{card_json['name']}_{card_json['set'].lower()}_{card_json['collector_number'].lower()}_{card_json['id']}.json"
         try:
             with open(self._fix_dir_sep(f"{self._dir_cache_cards}/{filename}"), "w") as outfile:
@@ -304,19 +317,29 @@ class ThranApparatus:
         except Exception as e:
             self.kill_err(e)
 
-    def _save_mana_json(self, mana_cost: dict) -> bool:
-        filename = rp.sub("/[^A-Z0-9\-]+/i", "_", mana_cost['cost'].replace("/", "-")).strip("_") + ".json"
-        try:
-            with open(self._fix_dir_sep(f"{self._dir_cache_mana_cost}/{filename}"), "w") as outfile:
-                outfile.write(json.dumps(mana_cost, indent=4))
-                return True
-        except Exception as e:
-            self.kill_err(e)
+    # def _save_mana_json(self, mana_cost: dict) -> bool:
+    #     filename = rp.sub("/[^A-Z0-9\-]+/i", "_", mana_cost['cost'].replace("/", "-")).strip("_") + ".json"
+    #     try:
+    #         with open(self._fix_dir_sep(f"{self._dir_cache_mana_cost}/{filename}"), "w") as outfile:
+    #             outfile.write(json.dumps(mana_cost, indent=4))
+    #             return True
+    #     except Exception as e:
+    #         self.kill_err(e)
 
-    def _save_404_json(self, uri: str, content: dict):
-        filename = "randomhash"
+    # def _save_error_json(self, uri: str, content: dict):
+    #     filename = hashlib.md5(uri.encode('utf-8')).hexdigest() + ".json"
+    #     try:
+    #         with open(self._fix_dir_sep(f"{self._dir_cache_err}/{filename}"), "w") as outfile:
+    #             outfile.write(json.dumps(content, indent=4))
+    #             return True
+    #     except Exception as e:
+    #         self.kill_err(e)
+
+    def _save_response_json(self, uri: str, content: dict, cache_dir: str):
+        target_cache = {'cards': self._dir_cache_cards, 'mana': self._dir_cache_mana_cost, 'error': self._dir_cache_err}.get(cache_dir)
+        filename = hashlib.md5(uri.encode('utf-8')).hexdigest() + ".json"
         try:
-            with open(self._fix_dir_sep(f"{self._dir_cache_404}/{filename}"), "w") as outfile:
+            with open(self._fix_dir_sep(f"{target_cache}/{filename}"), "w") as outfile:
                 outfile.write(json.dumps(content, indent=4))
                 return True
         except Exception as e:
@@ -360,16 +383,23 @@ class ThranApparatus:
         templateDirs = os.listdir(ThranApparatus._dir_templates)
         print(f"\navailable templates ({len(templateDirs)}):")
         for d in templateDirs:
-            print(f"  - {d}")
+            print(f"  * {d}")
         return None
 
+    def _template_search_caseinsensitive(self, template: AnyStr) -> str | bool:
+        template = template.strip() if template.endswith(".zip") else f"{template}.zip".strip()
+        for t in os.listdir(ThranApparatus._dir_templates):
+            if template.lower() == t.lower():
+                return self._fix_dir_sep(f"{self._dir_templates}/{t}")
+        return False
+
     def load_template(self, template: AnyStr = "classicRedux") -> None:
-        templatePath = self._fix_dir_sep(f"./templates/{template if template.endswith('.zip') else template + '.zip'}")
         self._verbose_logging(f"Searching for specified template: \"{template}\"", 0, 3)
+        templatePath = self._template_search_caseinsensitive(template)
         if not os.path.exists(templatePath):
             self.kill_err(f"Could not find template: '{templatePath}'")
         self._template_archive = zipfile.ZipFile(templatePath, 'r')
-        self._verbose_logging(f"Template loaded: {template}", 0, 3)
+        self._verbose_logging(f"Template loaded: {templatePath}", 0, 3)
         self.read_config()
 
     def read_config(self) -> None:
@@ -469,7 +499,7 @@ class ThranApparatus:
         return cards
 
     # ---- Normalizing Functions ---- #
-    def normalize_properties(self, card):
+    def deprecated_normalize_properties(self, card):
         # Variables
         # self.json = card
         self.type_line = card['type_line']
@@ -496,7 +526,7 @@ class ThranApparatus:
             card['colors'] = card['produced_mana']
         if 0 == len(card['colors']):
             card['colors'] = ['C']
-        card['colors'] = "".join(self.sort_colors(card['colors']))
+        card['colors'] = "".join(self.depricated_sort_colors(card['colors']))
 
         # Frames (from most to least restrictive)
         if "Augment" in card['oracle_text']:
@@ -520,7 +550,7 @@ class ThranApparatus:
 
         return card
 
-    def sort_colors(self, colors):
+    def deprecated_sort_colors(self, colors):
         # only one color
         if 1 == len(colors):
             return colors
@@ -925,9 +955,13 @@ class ThranApparatus:
     # ---- Rendering Functions ---- #
     def render_card(self, card: object) -> bool:
         print(inspect.getmembers(card))
-        mana_cost = card.mana_cost
-        card.mana_cost = mana_cost
-        print(card.hybrid)
+        print(f"card.mana_cost: {card.mana_cost}")
+        print(f"card.cmc: {card.cmc}")
+        print(f"card.colorless: {card.colorless}")
+        print(f"card.monocolored: {card.monocolored}")
+        print(f"card.multicolored: {card.multicolored}")
+        print(f"card.hybrid: {card.hybrid}")
+        print(f"card.phyrexian: {card.phyrexian}")
         self.kill_err("temporary lock")
         render_dir = self._output if self._output else self._dir_renders
         output = self._fix_dir_sep(f"{render_dir}/{card.name}.png")

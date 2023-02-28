@@ -1,24 +1,30 @@
 import replus as rp
 
-mana_cost: str = ""
-_colors: list = []
+_mana_cost: str = ""
+colors: list = []
 cmc: float = 0.0
-_colorless: bool = False
-_monocolored: bool = False
-_multicolored: bool = False
-_phyrexian: bool = False
-_hybrid: bool = False
+colorless: bool = False
+monocolored: bool = False
+multicolored: bool = False
+phyrexian: bool = False
+hybrid: bool = False
 
 def __init__(self, mana_cost: str = None):
     self.cost = mana_cost
 
-@property
-def cost(self) -> str:
-    return self.mana_cost
+def _color_filter(self):
+    colors = list(set(rp.findall("/([WUBRG])/i", self.mana_cost)))
+    colors.sort(key=lambda c: ['W', 'U', 'B', 'R', 'G'].index(c))
+    self.colors = colors
 
-@cost.setter
+@property
+def mana_cost(self) -> str:
+    return self._mana_cost
+
+@mana_cost.setter
 def cost(self, mana_cost: str) -> None:
     self._mana_cost = mana_cost
+    self.colors = self._color_filter()
 
 @property
 def colors(self) -> list:
@@ -30,15 +36,15 @@ def colors(self) -> float:
 
 @property
 def colorless(self) -> bool:
-    pass
+    return True if 0 == len(self.colors) else False
 
 @property
 def monocolored(self) -> bool:
-    pass
+    return True if 1 == len(self.colors) else False
 
 @property
 def multicolored(self) -> bool:
-    pass
+    return True if 1 < len(self.colors) else False
 
 @property
 def hybrid(self) -> bool:

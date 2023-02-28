@@ -5,11 +5,11 @@ Wort, the Raidmother
 Rhys the Redeemed
 1x Rhys the Redeemed *CMDR*
 1x Rhys the Redeemed
+1x Progenitus (V11)
 Not A Real Card
 Oona, Queen of the Fae
 Time Vault
 # This shouldn't be a detected line
-1x Progenitus (V11)
 1 Lord Xander, the Collector
 1 Sliver Queen
 Ghave, Guru of Spores (CMD)

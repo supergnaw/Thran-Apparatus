@@ -87,7 +87,7 @@ class SubTypes(BaseTypeObject):
         self.add_types(self._parse_type_line(type_line, 1))
 
     def add_type(self, t: str) -> None:
-        self.types[t] = True
+        self.types[t.strip()] = True
 
     def del_type(self, t: str) -> None:
-        self.types.pop(t, None)
+        self.types.pop(t.strip(), None)

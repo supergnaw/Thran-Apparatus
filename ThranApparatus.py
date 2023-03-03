@@ -21,17 +21,17 @@ import cv2  # opencv-python
 import replus
 # NOTINVENTEDHERESYNDROME
 import replus as rp
-import MagicTypes
-import ManaCost
+from MagicTypes import SuperTypes, CardTypes, SubTypes
+from ManaCost import ManaCost
 
 DEFAULT_ART_DIRECTORY = f".{os.path.sep}art{os.path.sep}original"
 
 class ScryfallDataObject(object):
     _mana_cost: ManaCost = None
     _type_line: str = None
-    supertypes: MagicTypes = None
-    cardtypes: MagicTypes = None
-    subtypes: MagicTypes = None
+    supertypes: SuperTypes = None
+    cardtypes: CardTypes = None
+    subtypes: SubTypes = None
 
     # _types = MagicTypes()
     def __init__(self, card_json: str | dict) -> None:
@@ -76,13 +76,13 @@ class ScryfallDataObject(object):
     @type_line.setter
     def type_line(self, type_line: AnyStr):
         self._type_line = type_line
-        self.supertypes = MagicTypes.SuperTypes(str(type_line))
-        self.cardtypes = MagicTypes.CardTypes(str(type_line))
-        self.subtypes = MagicTypes.SubTypes(str(type_line))
+        self.supertypes = SuperTypes(str(type_line))
+        self.cardtypes = CardTypes(str(type_line))
+        self.subtypes = SubTypes(str(type_line))
 
 
 class ThranApparatus:
-    __version__ = "4.2"
+    __version__ = "4.3"
     last_update = "2023-01-18"
     _last_api_call = 0
     _template = None
@@ -107,7 +107,6 @@ class ThranApparatus:
     # ---- Initializations ---- #
     def __init__(self, **kwargs: dict) -> None:
         # self._test()
-        print(json.dumps(kwargs, indent=4))
         self._art_directory = kwargs.get("art_directory", self._dir_art_default)
         self._force_overwrite = kwargs.get("force_overwrite", False)
         self._input = kwargs.get("input", None)
@@ -187,33 +186,31 @@ class ThranApparatus:
             # URI builder
             try:
                 response = requests.get(uri)
-            except Exception as e:
-                for member, value in inspect.getmembers(e):
-                    print(f"{member:<45} {value}")
-                self._verbose_logging(f"{type(e)} {e.args[0].__dict__.get('reason', None)}: {uri}", 0, 1)
-                return False
-
-            if 200 != response.status_code:
-                self._verbose_logging(f"Error from \"{uri}\" ({response.status_code}): {response.text}", 0, 1)
-                if 404 == response.status_code:
-                    self._save_response_json(uri, json.loads(response.text), "error")
-                return False
-            else:
                 json_data = json.loads(response.text)
+            except Exception as err1:
+                self._verbose_logging(f"{type(err1)} {err1.args[0].__dict__.get('reason', None)}: {uri}", 0, 1)
+                return False
 
-        try:
-            if "list" == json_data.get("object", False):
-                return_data = json_data.get("data", [])
-                if json_data.get("has_more", False) and json_data.get("next_page", False):
-                    # There's more data, we have to go deeper
-                    return return_data + self._make_rest_call(json_data["next_page"])[0]
-            else:
-                return_data = json_data
-        except Exception as e:
-            print(str(e))
-            return False
+            self._save_response_json(uri, json_data)
 
-        return return_data, uri
+            if 200 != response.status_code or "error" == json_data.get("object", False):
+                self._verbose_logging(f"Error from \"{uri}\" ({response.status_code}): {response.text}", 0, 1)
+                return False
+
+        # try:
+        if "list" == json_data.get("object", False):
+            recursed_data = json_data.get("data", [])
+            if json_data.get("has_more", False) and json_data.get("next_page", False):
+                # There's more data, we have to go deeper
+                recursed_data += self._make_rest_call(json_data["next_page"])[0]
+            json_data["data"] = recursed_data
+        #     else:
+        #         return_data = json_data
+        # except Exception as err2:
+        #     print(f"str(err2): {str(err2)}")
+        #     return False
+
+        return json_data
 
     def _json_to_object(self, input_json: dict | AnyStr):
         # Convert non-string input to string
@@ -241,6 +238,19 @@ class ThranApparatus:
     #     card_id = "[a-z\\d\\-]{36}" if not card_collector_number.strip() else card_collector_number
     #     return f"/^{card_name}_{card_set_id}_{card_collector_number}_{card_id}\\.json$/i"
 
+    def fetch_card_list(self, card_list=None) -> list:
+        card_list = card_list if card_list else self._card_list
+        card_data = []
+
+        for card in card_list:
+            print(card)
+            c = self.fetch_card(card_name=card['name'], card_set_id=card['set'], card_collector_number=card['num'])
+            if c:
+                card_data.append(c)
+
+        self._card_data = card_data
+        return card_data
+
     def fetch_card(self, card_name: str = "", card_id: str = "", card_set_id: str = "", card_collector_number: str = "") -> object | None:
         # detection = self._parse_json_detection(card_name, card_id, card_set_id, card_collector_number)
         # json_file, cache_file = self._check_scryfall_cache(detection)
@@ -261,34 +271,37 @@ class ThranApparatus:
             card_json = self._make_rest_call(f"cards/{card_set_id}/{card_collector_number}")
         if card_name:
             card_json = self._make_rest_call(f"cards/named?exact={card_name.replace(' ', '+')}")
-            if card_set_id:
+            if card_set_id and card_json:
                 unique_prints = self._make_rest_call(card_json["prints_search_uri"])
                 print(card_json["prints_search_uri"])
                 search_results = self._make_rest_call(card_json["prints_search_uri"])
                 print(search_results)
                 for card in self._make_rest_call(card_json["prints_search_uri"]):
                     card_json = card if card_set_id == card['set'] else card_json
-            else:
+            elif card_json:
                 card_json = card_json[0] if isinstance(card_json, tuple) or isinstance(card_json, list) else card_json
 
         if not card_json:
             return None
         print(f"card_json ({type(card_json)}): {card_json}")
-        self._save_response_json(card_json)
-        return ScryfallDataObject(card_json)
+        card_json['mana_cost'] = self.parse_mana_cost(card_json['mana_cost']) if card_json['mana_cost'] else card_json['mana_cost']
+        # self._save_response_json(card_json)
+        card = ScryfallDataObject(card_json)
+        print(card.subtypes, card.cardtypes, card.subtypes, card.mana_cost)
+        return card
 
-    def parse_mana_cost(self, mana_cost: AnyStr) -> object:
+    def parse_mana_cost(self, mana_cost: AnyStr) -> dict:
         # if not self._force_overwrite:
         #     detection = rp.sub("/[^A-Z0-9\-]+/i", "_", mana_cost.replace("/", "-")).strip("_") + ".json"
         #     mana_json, cache_file = self._check_scryfall_cache(detection, "fullmatch")
         #     if mana_json:
         #         return self._load_json(mana_json)
 
-        mana_json, uri = self._make_rest_call(f"https://api.scryfall.com/symbology/parse-mana?cost={mana_cost}")
-        if mana_json:
-            self._save_response_json(mana_json)
-            return mana_json
-        return None
+        return self._make_rest_call(f"https://api.scryfall.com/symbology/parse-mana?cost={mana_cost.strip()}")
+        # if mana_json:
+        #     self._save_response_json(mana_json)
+        #     return mana_json
+        # return None
 
     def _parse_mana_cost_helper(self, mana_properties: dict) -> dict:
         mana_properties["hybrid"] = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", mana_properties["cost"]) else False
@@ -302,19 +315,6 @@ class ThranApparatus:
         else:
             card['super_type'] = "Multiple"
         card['supertypes'] = "".join(types) if 1 == len(types) else "Multiple"
-
-    def fetch_card_list(self, card_list=None) -> list:
-        card_list = card_list if card_list else self._card_list
-        card_data = []
-
-        for card in card_list:
-            print(card)
-            c = self.fetch_card(card_name=card['name'], card_set_id=card['set'], card_collector_number=card['num'])
-            if c:
-                card_data.append(c)
-
-        self._card_data = card_data
-        return card_data
 
     def _load_json(self, filename: str) -> dict:
         with open(filename, "r") as f:
@@ -349,9 +349,20 @@ class ThranApparatus:
     #     except Exception as e:
     #         self.kill_err(e)
 
-    def _save_response_json(self, uri: str, content: dict):
-        target_cache = {'card': self._dir_cache_cards, 'mana_cost': self._dir_cache_mana_cost, 'error': self._dir_cache_err}.get(content.get("object"), False)
+    def _save_response_json(self, uri: str, content: str | dict):
+        cache_grab: dict = {
+            'card': self._dir_cache_cards,
+            'mana_cost': self._dir_cache_mana_cost,
+            'error': self._dir_cache_err,
+            'search': self._dir_cache_search,
+        }
+
+        if isinstance(content, str):
+            content = json.loads(content)
+
+        target_cache = cache_grab.get(content.get("object"), False)
         filename = self._parse_cache_filename(uri, content)
+
         try:
             with open(self._fix_dir_sep(f"{target_cache}/{filename}"), "w") as outfile:
                 outfile.write(json.dumps(content, indent=4))
@@ -366,7 +377,9 @@ class ThranApparatus:
         if "mana_cost" == content.get("object", False):
             return rp.sub('/[^A-Z0-9\-]+/i', '', content['cost'].strip('_')) + "_{hash}.json"
         if "error" == content.get("object", False):
-            return f"{hash}.json"
+            return f"{hash}_{content.get('status', 'unknown')}.json"
+        if "list" == content.get("object", False):
+            return rp.sub("/[^\w]+/", "-", uri).strip("-") + ".json"
         return None
 
     # ---- Informational Functions ---- #

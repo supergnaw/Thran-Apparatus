@@ -55,26 +55,13 @@ class ScryfallDataObject(object):
     @mana_cost.setter
     def mana_cost(self, mana_cost: str | dict):
         self._mana_cost = ManaCost(mana_cost)
-        # self._color_filter()
-        # self.colorless = True if 0 == len(self.colors) else False
-        # self.monocolored = True if 1 == len(self.colors) else False
-        # self.multicolored = True if 1 < len(self.colors) else False
-        # self.hybrid = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", self.mana_cost) else False
-        # self.phyrexian = True if rp.search("/[WUBRG2]/P\}/i", self.mana_cost) else False
-        # self.hybrid = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", self._mana_cost["cost"]) else False
-        # self.phyrexian = True if rp.search("/[WUBRG2]/P\}/i", self._mana_cost["cost"]) else False
-
-    # def _color_filter(self):
-    #     colors = list(set(rp.findall("/([WUBRG])/i", self.mana_cost)))
-    #     colors.sort(key=lambda c: ['W', 'U', 'B', 'R', 'G'].index(c))
-    #     self.colors = colors
 
     @property
-    def type_line(self):
+    def type_line(self) -> str:
         return self._type_line
 
     @type_line.setter
-    def type_line(self, type_line: AnyStr):
+    def type_line(self, type_line: AnyStr) -> None:
         self._type_line = type_line
         self.supertypes = SuperTypes(str(type_line))
         self.cardtypes = CardTypes(str(type_line))
@@ -97,6 +84,8 @@ class ThranApparatus:
     _dir_cache_search = f"./_cache/scryfall/search"
     _dir_cache_mana_cost = f"./_cache/scryfall/mana_cost"
     _dir_cache_err = f"./_cache/scryfall/error"
+    _dir_cache_art = f"./_cache/art"
+    _dir_cache_text = f"./_cache/text"
     _dir_renders = f"./renders"
     _dir_logs = "./logs"
     _dir_templates = "./templates"
@@ -171,12 +160,12 @@ class ThranApparatus:
         uri = f"https://api.scryfall.com/{endpoint.replace('https://api.scryfall.com/', '')}"
 
         # Check for existing json in cache
-        pattern = f"^.*{hashlib.md5(endpoint.encode('utf-8')).hexdigest()}\\.json$"
+        pattern = f"^.*{self._generate_md5_hash(uri)}\\.json$"
         cached_json = self._check_scryfall_cache(pattern)
-        if cached_json and not self._force_overwrite:
+        if isinstance(cached_json, str) and not self._force_overwrite:
             json_data = self._load_json(cached_json)
         else:
-            # Rate limiter -- https://scryfall.com/docs/api
+            # Rate limiter (read more here) --> https://scryfall.com/docs/api
             t_diff = time.time() - self._last_api_call
             if 0.1 > t_diff:
                 self._verbose_logging(f"API limit hit ({t_diff}), sleeping for {0.1 - t_diff} seconds", 0, 2)
@@ -197,46 +186,55 @@ class ThranApparatus:
                 self._verbose_logging(f"Error from \"{uri}\" ({response.status_code}): {response.text}", 0, 1)
                 return False
 
-        # try:
-        if "list" == json_data.get("object", False):
+        # There's more data so we have to go deeper
+        if self._response_has_more(json_data):
             recursed_data = json_data.get("data", [])
             if json_data.get("has_more", False) and json_data.get("next_page", False):
-                # There's more data, we have to go deeper
-                recursed_data += self._make_rest_call(json_data["next_page"])[0]
+                self._verbose_logging(f"List has more data: {json_data['next_page']}", 0, 2)
+                more_json = self._make_rest_call(json_data["next_page"])[0]
+                if isinstance(more_json, dict):
+                    recursed_data += more_json
             json_data["data"] = recursed_data
-        #     else:
-        #         return_data = json_data
-        # except Exception as err2:
-        #     print(f"str(err2): {str(err2)}")
-        #     return False
+
+        if not isinstance(json_data, dict):
+            self.kill_err(f"Type {type(json_data)} returned from {uri}")
 
         return json_data
 
-    def _json_to_object(self, input_json: dict | AnyStr):
-        # Convert non-string input to string
-        if not isinstance(input_json, str):
-            input_json = json.dumps(input_json)
-        return json.loads(input_json,
-                          object_hook=lambda d: collections.namedtuple('ScryfallDataObject', d.keys())(*d.values()))
+    def _response_has_more(self, response: dict) -> bool:
+        if not "list" == response.get("object", False):
+            return False
+        if not response.get("has_more", False):
+            return False
+        if not response.get("next_page", False):
+            return False
+        return True
 
     def _check_scryfall_cache(self, pattern: AnyStr, search_method: str = "findall") -> str | bool:
         for cache_dir in [member for member, member_type in inspect.getmembers(self) if member.startswith("_dir_cache")]:
-            print(pattern)
-            print(cache_dir)
             cache = getattr(self, cache_dir)
-            print(cache)
             for f in os.listdir(cache):
                 if getattr(rp, search_method)(pattern, f):
+                    print(f"pattern: {pattern}")
                     self._verbose_logging(f"Using cached Scryfall data: {f}", 0, 3)
-                    return self._fix_dir_sep(f"{cache_dir}/{f}")
+                    return self._fix_dir_sep(f"{cache}/{f}")
+        print(f"No matches found in cache for {pattern}")
         return False
 
-    # def _parse_json_detection(self, card_name: str, card_id: str, card_set_id: str, card_collector_number: str) -> str:
-    #     card_name = ".*" if not card_name.strip() else card_name
-    #     card_collector_number = "[^_]+" if not card_id.strip() else card_id
-    #     card_set_id = "[^_]+" if not card_set_id.strip() else card_set_id
-    #     card_id = "[a-z\\d\\-]{36}" if not card_collector_number.strip() else card_collector_number
-    #     return f"/^{card_name}_{card_set_id}_{card_collector_number}_{card_id}\\.json$/i"
+    def _parse_cache_filename(self, uri: str, content: dict):
+        hash = self._generate_md5_hash(uri)
+        if "card" == content.get("object", False):
+            return f"{content['name']}_{content['set']}_{content['collector_number']}_{content['id']}_{hash}.json"
+        if "mana_cost" == content.get("object", False):
+            return rp.sub('/[^A-Z0-9\\-]+/i', '_', content['cost'].replace("/","-")).strip('_') + f"_{hash}.json"
+        if "error" == content.get("object", False):
+            return f"{content.get('status', 'unknown')}_{hash}.json"
+        if "list" == content.get("object", False):
+            return rp.sub("/[^\w]+/", "-", uri).strip("-") + f"_{hash}.json"
+        return None
+
+    def _generate_md5_hash(self, s: AnyStr) -> str:
+        return hashlib.md5(str(s).encode('utf-8')).hexdigest()
 
     def fetch_card_list(self, card_list=None) -> list:
         card_list = card_list if card_list else self._card_list
@@ -252,17 +250,6 @@ class ThranApparatus:
         return card_data
 
     def fetch_card(self, card_name: str = "", card_id: str = "", card_set_id: str = "", card_collector_number: str = "") -> object | None:
-        # detection = self._parse_json_detection(card_name, card_id, card_set_id, card_collector_number)
-        # json_file, cache_file = self._check_scryfall_cache(detection)
-        #
-        # if self._force_overwrite:
-        #     if json_file:
-        #         os.remove(json_file)
-        #         json_file = None
-        #
-        # if json_file:
-        #     card_json = self._load_json(json_file)
-        #     return ScryfallDataObject(card_json)
         card_json = False
 
         if card_id:
@@ -271,37 +258,25 @@ class ThranApparatus:
             card_json = self._make_rest_call(f"cards/{card_set_id}/{card_collector_number}")
         if card_name:
             card_json = self._make_rest_call(f"cards/named?exact={card_name.replace(' ', '+')}")
-            if card_set_id and card_json:
-                unique_prints = self._make_rest_call(card_json["prints_search_uri"])
-                print(card_json["prints_search_uri"])
-                search_results = self._make_rest_call(card_json["prints_search_uri"])
-                print(search_results)
-                for card in self._make_rest_call(card_json["prints_search_uri"]):
-                    card_json = card if card_set_id == card['set'] else card_json
+            if card_set_id and card_json.get("prints_search_uri", False):
+                for card in self._make_rest_call(card_json["prints_search_uri"]).get("data", []):
+                    card_json = card if card_set_id == card.get("set", False) else card_json
             elif card_json:
                 card_json = card_json[0] if isinstance(card_json, tuple) or isinstance(card_json, list) else card_json
 
-        if not card_json:
-            return None
-        print(f"card_json ({type(card_json)}): {card_json}")
-        card_json['mana_cost'] = self.parse_mana_cost(card_json['mana_cost']) if card_json['mana_cost'] else card_json['mana_cost']
-        # self._save_response_json(card_json)
-        card = ScryfallDataObject(card_json)
-        print(card.subtypes, card.cardtypes, card.subtypes, card.mana_cost)
-        return card
+        try:
+            if not card_json or "card" != card_json.get("object", False):
+                return None
+            print(f"card_json ({type(card_json)}): {card_json}")
+            card_json['mana_cost'] = self.parse_mana_cost(card_json['mana_cost']) if card_json['mana_cost'] else card_json['mana_cost']
+            card = ScryfallDataObject(card_json)
+            print(card.subtypes, card.cardtypes, card.subtypes, card.mana_cost)
+            return card
+        except:
+            self.kill_err(f"card_json ({type(card_json)}): {card_json}")
 
     def parse_mana_cost(self, mana_cost: AnyStr) -> dict:
-        # if not self._force_overwrite:
-        #     detection = rp.sub("/[^A-Z0-9\-]+/i", "_", mana_cost.replace("/", "-")).strip("_") + ".json"
-        #     mana_json, cache_file = self._check_scryfall_cache(detection, "fullmatch")
-        #     if mana_json:
-        #         return self._load_json(mana_json)
-
         return self._make_rest_call(f"https://api.scryfall.com/symbology/parse-mana?cost={mana_cost.strip()}")
-        # if mana_json:
-        #     self._save_response_json(mana_json)
-        #     return mana_json
-        # return None
 
     def _parse_mana_cost_helper(self, mana_properties: dict) -> dict:
         mana_properties["hybrid"] = True if rp.search("/\{[WUBRG2]/[WUBRG](\/P)?\}/i", mana_properties["cost"]) else False
@@ -321,40 +296,12 @@ class ThranApparatus:
             content = f.read()
         return json.loads(content)
 
-    def _save_card_json(self, card_json: dict) -> bool:
-        self._verbose_logging(f"Adding new card to cache: {card_json['name']} ({card_json['set'].upper()})")
-        filename = f"{card_json['name']}_{card_json['set'].lower()}_{card_json['collector_number'].lower()}_{card_json['id']}.json"
-        try:
-            with open(self._fix_dir_sep(f"{self._dir_cache_cards}/{filename}"), "w") as outfile:
-                outfile.write(json.dumps(card_json, indent=4))
-                return True
-        except Exception as e:
-            self.kill_err(e)
-
-    # def _save_mana_json(self, mana_cost: dict) -> bool:
-    #     filename = rp.sub("/[^A-Z0-9\-]+/i", "_", mana_cost['cost'].replace("/", "-")).strip("_") + ".json"
-    #     try:
-    #         with open(self._fix_dir_sep(f"{self._dir_cache_mana_cost}/{filename}"), "w") as outfile:
-    #             outfile.write(json.dumps(mana_cost, indent=4))
-    #             return True
-    #     except Exception as e:
-    #         self.kill_err(e)
-
-    # def _save_error_json(self, uri: str, content: dict):
-    #     filename = hashlib.md5(uri.encode('utf-8')).hexdigest() + ".json"
-    #     try:
-    #         with open(self._fix_dir_sep(f"{self._dir_cache_err}/{filename}"), "w") as outfile:
-    #             outfile.write(json.dumps(content, indent=4))
-    #             return True
-    #     except Exception as e:
-    #         self.kill_err(e)
-
     def _save_response_json(self, uri: str, content: str | dict):
         cache_grab: dict = {
             'card': self._dir_cache_cards,
             'mana_cost': self._dir_cache_mana_cost,
+            'list': self._dir_cache_search,
             'error': self._dir_cache_err,
-            'search': self._dir_cache_search,
         }
 
         if isinstance(content, str):
@@ -363,24 +310,22 @@ class ThranApparatus:
         target_cache = cache_grab.get(content.get("object"), False)
         filename = self._parse_cache_filename(uri, content)
 
+        # Cache logging
+        if "card" == content.get("object", False):
+            self._verbose_logging(f"Adding new card to cache: {content['name']} ({content['set'].upper()})")
+        if "mana_cost" == content.get("object", False):
+            self._verbose_logging(f"Adding new mana cost to cache: {content['cost']}")
+        if "list" == content.get("object", False):
+            self._verbose_logging(f"Adding new search to cache: {uri}", 0, )
+        if "error" == content.get("object", False):
+            self._verbose_logging(f"Adding new error to cache: {content['status']} ({uri})", 0, 2)
+
         try:
             with open(self._fix_dir_sep(f"{target_cache}/{filename}"), "w") as outfile:
                 outfile.write(json.dumps(content, indent=4))
                 return True
         except Exception as e:
             self.kill_err(e)
-
-    def _parse_cache_filename(self, uri: str, content: dict):
-        hash = hashlib.md5(uri.encode('utf-8')).hexdigest()
-        if "card" == content.get("object", False):
-            return f"{content['name']}_{content['set']}_{content['collector_number']}_{content['id']}_{hash}.json"
-        if "mana_cost" == content.get("object", False):
-            return rp.sub('/[^A-Z0-9\-]+/i', '', content['cost'].strip('_')) + "_{hash}.json"
-        if "error" == content.get("object", False):
-            return f"{hash}_{content.get('status', 'unknown')}.json"
-        if "list" == content.get("object", False):
-            return rp.sub("/[^\w]+/", "-", uri).strip("-") + ".json"
-        return None
 
     # ---- Informational Functions ---- #
 
@@ -994,11 +939,11 @@ class ThranApparatus:
         print(inspect.getmembers(card))
         print(f"card.mana_cost: {card.mana_cost}")
         print(f"card.cmc: {card.cmc}")
-        print(f"card.colorless: {card.colorless}")
-        print(f"card.monocolored: {card.monocolored}")
-        print(f"card.multicolored: {card.multicolored}")
-        print(f"card.hybrid: {card.hybrid}")
-        print(f"card.phyrexian: {card.phyrexian}")
+        print(f"card.mana_cost.colorless: {card.mana_cost.colorless}")
+        print(f"card.mana_cost.monocolored: {card.mana_cost.monocolored}")
+        print(f"card.mana_cost.multicolored: {card.mana_cost.multicolored}")
+        print(f"card.mana_cost.hybrid: {card.mana_cost.hybrid}")
+        print(f"card.mana_cost.phyrexian: {card.mana_cost.phyrexian}")
         self.kill_err("temporary lock")
         render_dir = self._output if self._output else self._dir_renders
         output = self._fix_dir_sep(f"{render_dir}/{card.name}.png")

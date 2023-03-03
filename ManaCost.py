@@ -4,15 +4,14 @@ import replus as rp
 
 class ManaCost:
     cost: str = ""
-    colors: list = []
+    _colors: list = []
     cmc: float = 0.0
     colorless: bool = False
     monocolored: bool = False
     multicolored: bool = False
 
     def __init__(self, mana_json: str | dict):
-        print(f"mana_json ({type(mana_json)}): {mana_json}")
-        if not isinstance(mana_json, dict):
+        if isinstance(mana_json, str):
             mana_json = json.loads(mana_json)
 
         for key, value in mana_json.items():
@@ -24,6 +23,19 @@ class ManaCost:
 
     def excludes(self, type_name: str) -> bool:
         return not self.includes(type_name)
+
+    @property
+    def colors(self) -> list:
+        return self._colors
+
+    @colors.setter
+    def colors(self, colors: list) -> None:
+        self._colors = self._color_filter(colors)
+
+    def _color_filter(self, colors: list) -> list:
+        if 0 < len(colors):
+            colors.sort(key=lambda c: ['W', 'U', 'B', 'R', 'G'].index(c))
+        return colors
 
     @property
     def string(self) -> str:
